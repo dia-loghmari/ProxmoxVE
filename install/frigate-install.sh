@@ -45,6 +45,12 @@ mkdir -p /opt/frigate/models
 curl -fsSL "https://github.com/blakeblackshear/frigate/archive/refs/tags/v0.16.2.tar.gz" -o "frigate.tar.gz"
 tar -xzf frigate.tar.gz -C /opt/frigate --strip-components 1
 rm -rf frigate.tar.gz
+mkdir -p /opt/frigate/frigate
+cat <<'VERSIONEOF' >/opt/frigate/frigate/version.py
+"""Frigate version information."""
+
+VERSION = "0.16.2"
+VERSIONEOF
 cd /opt/frigate
 $STD pip3 wheel --wheel-dir=/wheels -r /opt/frigate/docker/main/requirements-wheels.txt
 cp -a /opt/frigate/docker/main/rootfs/. /
@@ -55,18 +61,14 @@ $STD apt update
 $STD ln -svf /usr/lib/btbn-ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
 $STD ln -svf /usr/lib/btbn-ffmpeg/bin/ffprobe /usr/local/bin/ffprobe
 # Install HailoRT
-$STD/opt/frigate/docker/main/install_hailort.sh
+$STD /opt/frigate/docker/main/install_hailort.sh
+# Build sqlite
+$STD /opt/frigate/docker/main/build_pysqlite3.sh
 $STD pip3 install -U /wheels/*.whl
 ldconfig
 $STD pip3 install -r /opt/frigate/docker/main/requirements-dev.txt
 $STD /opt/frigate/.devcontainer/initialize.sh
 $STD make version
-mkdir -p /opt/frigate/frigate
-cat <<'VERSIONEOF' >/opt/frigate/frigate/version.py
-"""Frigate version information."""
-
-VERSION = "0.16.2"
-VERSIONEOF
 cd /opt/frigate/web
 $STD npm install
 $STD npm run build
