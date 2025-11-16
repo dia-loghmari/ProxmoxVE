@@ -5,6 +5,7 @@
 # Co-Author: remz1337
 # License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
 # Source: https://frigate.video/
+# Updated to v0.16.2 with nginx config fixes
 
 source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
 color
@@ -15,13 +16,9 @@ network_check
 update_os
 
 msg_info "Installing Dependencies (Patience)"
-$STD apt-get install -y {git,ca-certificates,automake,build-essential,xz-utils,libtool,ccache,pkg-config,libgtk-3-dev,libavcodec-dev,libavformat-dev,libswscale-dev,libv4l-dev,libxvidcore-dev,libx264-dev,libjpeg-dev,libpng-dev,libtiff-dev,gfortran,openexr,libatlas-base-dev,libssl-dev,libtbb2,libtbb-dev,libdc1394-22-dev,libopenexr-dev,libgstreamer-plugins-base1.0-dev,libgstreamer1.0-dev,gcc,gfortran,libopenblas-dev,liblapack-dev,libusb-1.0-0-dev,jq,moreutils}
+$STD apt-get install -y {git,ca-certificates,automake,build-essential,xz-utils,libtool,ccache,pkg-config,libgtk-3-dev,libavcodec-dev,libavformat-dev,libswscale-dev,libv4l-dev,libxvidcore-dev,libx264-dev,libjpeg-dev,libpng-dev,libtiff-dev,gfortran,openexr,libatlas-base-dev,libssl-dev,libtbbmalloc2,libtbb-dev,libdc1394-dev,libopenexr-dev,libgstreamer-plugins-base1.0-dev,libgstreamer1.0-dev,gcc,gfortran,libopenblas-dev,liblapack-dev,libusb-1.0-0-dev,jq,moreutils,tclsh}
 msg_ok "Installed Dependencies"
 
-msg_info "Setup Python3"
-$STD apt-get install -y {python3,python3-dev,python3-setuptools,python3-distutils,python3-pip}
-$STD pip install --upgrade pip
-msg_ok "Setup Python3"
 
 NODE_VERSION="22" setup_nodejs
 
@@ -42,10 +39,10 @@ if [[ "$CTTYPE" == "0" ]]; then
 fi
 msg_ok "Set Up Hardware Acceleration"
 
-msg_info "Installing Frigate v0.14.1 (Perseverance)"
+msg_info "Installing Frigate v0.16.2"
 cd ~
 mkdir -p /opt/frigate/models
-curl -fsSL "https://github.com/blakeblackshear/frigate/archive/refs/tags/v0.14.1.tar.gz" -o "frigate.tar.gz"
+curl -fsSL "https://github.com/blakeblackshear/frigate/archive/refs/tags/v0.16.2.tar.gz" -o "frigate.tar.gz"
 tar -xzf frigate.tar.gz -C /opt/frigate --strip-components 1
 rm -rf frigate.tar.gz
 cd /opt/frigate
@@ -57,11 +54,19 @@ $STD /opt/frigate/docker/main/install_deps.sh
 $STD apt update
 $STD ln -svf /usr/lib/btbn-ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
 $STD ln -svf /usr/lib/btbn-ffmpeg/bin/ffprobe /usr/local/bin/ffprobe
+# Install HailoRT
+$STD/opt/frigate/docker/main/install_hailort.sh
 $STD pip3 install -U /wheels/*.whl
 ldconfig
 $STD pip3 install -r /opt/frigate/docker/main/requirements-dev.txt
 $STD /opt/frigate/.devcontainer/initialize.sh
 $STD make version
+mkdir -p /opt/frigate/frigate
+cat <<'VERSIONEOF' >/opt/frigate/frigate/version.py
+"""Frigate version information."""
+
+VERSION = "0.16.2"
+VERSIONEOF
 cd /opt/frigate/web
 $STD npm install
 $STD npm run build
@@ -71,6 +76,10 @@ sed -i '/^s6-svc -O \.$/s/^/#/' /opt/frigate/docker/main/rootfs/etc/s6-overlay/s
 cat <<EOF >/config/config.yml
 mqtt:
   enabled: false
+
+detect:
+  enabled: true
+
 cameras:
   test:
     ffmpeg:
@@ -161,8 +170,20 @@ msg_ok "Installed Coral Object Detection Model"
 
 msg_info "Building Nginx with Custom Modules"
 $STD /opt/frigate/docker/main/build_nginx.sh
+$STD /opt/frigate/docker/main/build_sqlite_vec.sh
 sed -e '/s6-notifyoncheck/ s/^#*/#/' -i /opt/frigate/docker/main/rootfs/etc/s6-overlay/s6-rc.d/nginx/run
 ln -sf /usr/local/nginx/sbin/nginx /usr/local/bin/nginx
+cat <<'EOF' >/usr/local/nginx/conf/listen.conf
+# intended for internal traffic, not protected by auth
+listen 5000;
+
+# intended for external traffic, protected by auth
+listen 8971;
+EOF
+cat <<'EOF' >/usr/local/nginx/conf/base_path.conf
+# No base path configured
+EOF
+sed -i 's|root /opt/frigate/web;|root /opt/frigate/web/dist;|g' /usr/local/nginx/conf/nginx.conf
 msg_ok "Built Nginx"
 
 msg_info "Installing Tempio"
